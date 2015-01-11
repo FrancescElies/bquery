@@ -109,6 +109,7 @@ lib_dirs = []
 libs = []
 def_macros = []
 sources_ctable = ["bquery/ctable_ext.pyx"]
+sources_factorize = ["bquery/factorize.pyx"]
 
 # Include NumPy header dirs
 from numpy.distutils.misc_util import get_numpy_include_dirs
@@ -138,6 +139,15 @@ setup(name="bquery",
                     libraries=libs,
                     extra_link_args=LFLAGS,
                     extra_compile_args=CFLAGS),
+          Extension("bquery.factorize",
+                    include_dirs=inc_dirs,
+                    define_macros=def_macros,
+                    sources=sources_factorize,
+                    library_dirs=lib_dirs,
+                    libraries=libs,
+                    extra_link_args=LFLAGS,
+                    extra_compile_args=CFLAGS),
+
       ],
       packages=['bquery', 'bquery.tests'],
 )

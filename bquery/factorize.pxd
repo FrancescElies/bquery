@@ -1,0 +1,4 @@
+cdef factorize_str
+cdef factorize_int64
+cdef factorize_int32
+cdef factorize_float64

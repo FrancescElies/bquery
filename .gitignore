@@ -55,6 +55,7 @@ target/
 
 # other
 bquery/ctable_ext.c
+bquery/factorize.c
 bcolz
 bquery/benchmarks/vb_suite/benchmarks.db
 bquery/benchmarks/vb_suite/source

@@ -542,8 +542,6 @@ def groupsort_indexer(carray index, Py_ssize_t ngroups):
         np_result[where[label]] = i
         where[label] += 1
 
-    # c_result = carray(np_result, dtype='int64', expectedlen=n)
-
     return np_result, counts
 
 cdef count_unique_float64(ndarray[float64_t] values):

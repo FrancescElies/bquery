@@ -435,7 +435,6 @@ class TestCtable():
 
         for item in values:
             if item not in new_values:
-                print item
                 if item == item:
                     new_values.append(item)
                 else:
@@ -458,7 +457,7 @@ class TestCtable():
         pool_d = itertools.cycle([0, 0, 1, 1, 1, 3, 3, 3, 3, 3])
         pool_e = itertools.cycle([np.nan, 0.0,
                                   np.nan, 0.0, 1.0,
-                                  np.nan, 3.0, 1.0, 3.0, 3.0])
+                                  np.nan, 3.0, 1.0, 3.0, 1.0])
         for _ in range(N):
             d = (
                 pool.next(),
@@ -466,8 +465,8 @@ class TestCtable():
                 pool_c.next(),
                 pool_d.next(),
                 pool_e.next(),
-                random.randint(- 10, 10),
-                random.randint(- 10, 10),
+                random.randint(- 500, 500),
+                random.randint(- 100, 100),
             )
             yield d
 
@@ -480,8 +479,8 @@ class TestCtable():
 
         groupby_cols = ['f0']
         groupby_lambda = lambda x: x[0]
-        agg_list = ['f4']
-        num_rows = 20
+        agg_list = ['f4', 'f5', 'f6']
+        num_rows = 2000
 
         # -- Data --
         g = self.gen_dataset_count_with_NA_08(num_rows)
@@ -511,9 +510,9 @@ class TestCtable():
 
         for n, (u, item) in enumerate(zip(uniquekeys, result_itt['groups'])):
             f4 = len(self._get_unique([x[4] for x in result_itt['groups'][n]]))
-            # f5 = len(self._get_unique([x[5] for x in result_itt['groups'][0]]))
-            # f6 = len(self._get_unique([x[6] for x in result_itt['groups'][0]]))
-            ref.append([u, f4])
+            f5 = len(self._get_unique([x[5] for x in result_itt['groups'][n]]))
+            f6 = len(self._get_unique([x[6] for x in result_itt['groups'][n]]))
+            ref.append([u, f4, f5, f6])
 
         assert_list_equal(
             [list(x) for x in result_bcolz], ref)

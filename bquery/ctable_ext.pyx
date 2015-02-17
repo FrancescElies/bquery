@@ -546,14 +546,14 @@ def groupsort_indexer(carray index, Py_ssize_t ngroups):
 
     return np_result, counts
 
-cdef unique(ndarray[float64_t] values):
+cdef count_unique_float64(ndarray[float64_t] values):
     cdef:
         Py_ssize_t i, n = len(values)
-        Py_ssize_t idx, count = 0
+        Py_ssize_t idx
         int ret = 0
         float64_t val
         npy_uint64 k
-        carray uniques = carray([], dtype='float64')
+        npy_uint64 count = 0
         bint seen_na = 0
         kh_float64_t *table
 
@@ -566,15 +566,64 @@ cdef unique(ndarray[float64_t] values):
             k = kh_get_float64(table, val)
             if k == table.n_buckets:
                 k = kh_put_float64(table, val, &ret)
-                uniques.append(val)
                 count += 1
         elif not seen_na:
             seen_na = 1
-            uniques.append(np.nan)
+            count += 1
 
     kh_destroy_float64(table)
 
-    return uniques
+    return count
+
+cdef count_unique_int64(ndarray[int64_t] values):
+    cdef:
+        Py_ssize_t i, n = len(values)
+        Py_ssize_t idx
+        int ret = 0
+        int64_t val
+        npy_uint64 k
+        npy_uint64 count = 0
+        kh_int64_t *table
+
+    table = kh_init_int64()
+
+    for i in range(n):
+        val = values[i]
+
+        if val == val:
+            k = kh_get_int64(table, val)
+            if k == table.n_buckets:
+                k = kh_put_int64(table, val, &ret)
+                count += 1
+
+    kh_destroy_int64(table)
+
+    return count
+
+cdef count_unique_int32(ndarray[int32_t] values):
+    cdef:
+        Py_ssize_t i, n = len(values)
+        Py_ssize_t idx
+        int ret = 0
+        int32_t val
+        npy_uint64 k
+        npy_uint64 count = 0
+        kh_int32_t *table
+
+    table = kh_init_int32()
+
+    for i in range(n):
+        val = values[i]
+
+        if val == val:
+            k = kh_get_int32(table, val)
+            if k == table.n_buckets:
+                k = kh_put_int32(table, val, &ret)
+                count += 1
+
+    kh_destroy_int32(table)
+
+    return count
 
 @cython.wraparound(False)
 @cython.boundscheck(False)
@@ -606,7 +655,7 @@ cdef sum_float64(carray ca_input, carray ca_factor,
             end_counts = start_counts + counts[j + 1]
             positions[start_counts:end_counts]
             num_uniques.append(
-                len(unique(ca_input[positions[start_counts:end_counts]]))
+                count_unique_float64(ca_input[positions[start_counts:end_counts]])
             )
 
         return num_uniques
@@ -693,19 +742,32 @@ cdef sum_int32(carray ca_input, carray ca_factor,
         chunk input_chunk, factor_chunk
         Py_ssize_t input_chunk_nr, input_chunk_len
         Py_ssize_t factor_chunk_nr, factor_chunk_len, factor_chunk_row
-        Py_ssize_t current_index, i, factor_total_chunks, leftover_elements
+        Py_ssize_t current_index, i, j, end_counts, start_counts, factor_total_chunks, leftover_elements
 
         ndarray[npy_int32] in_buffer
         ndarray[npy_int64] factor_buffer
         ndarray[npy_int32] out_buffer
+
+        carray num_uniques
 
     count = 0
     ret = 0
     reverse = {}
 
     if sum_type == SUM_SORTED_COUNT_DISTINCT:
-        c_result, counts = groupsort_indexer(ca_factor, nr_groups)
-        return counts
+        num_uniques = carray([], dtype='int64')
+        positions, counts = groupsort_indexer(ca_factor, nr_groups)
+        start_counts = 0
+        end_counts = 0
+        for j in range(len(counts) - 1):
+            start_counts = end_counts
+            end_counts = start_counts + counts[j + 1]
+            positions[start_counts:end_counts]
+            num_uniques.append(
+                count_unique_int32(ca_input[positions[start_counts:end_counts]])
+            )
+
+        return num_uniques
 
     input_chunk_len = ca_input.chunklen
     in_buffer = np.empty(input_chunk_len, dtype='int32')
@@ -789,19 +851,32 @@ cdef sum_int64(carray ca_input, carray ca_factor,
         chunk input_chunk, factor_chunk
         Py_ssize_t input_chunk_nr, input_chunk_len
         Py_ssize_t factor_chunk_nr, factor_chunk_len, factor_chunk_row
-        Py_ssize_t current_index, i, factor_total_chunks, leftover_elements
+        Py_ssize_t current_index, i, j, end_counts, start_counts, factor_total_chunks, leftover_elements
 
         ndarray[npy_int64] in_buffer
         ndarray[npy_int64] factor_buffer
         ndarray[npy_int64] out_buffer
+
+        carray num_uniques
 
     count = 0
     ret = 0
     reverse = {}
 
     if sum_type == SUM_SORTED_COUNT_DISTINCT:
-        c_result, counts = groupsort_indexer(ca_factor, nr_groups)
-        return counts
+        num_uniques = carray([], dtype='int64')
+        positions, counts = groupsort_indexer(ca_factor, nr_groups)
+        start_counts = 0
+        end_counts = 0
+        for j in range(len(counts) - 1):
+            start_counts = end_counts
+            end_counts = start_counts + counts[j + 1]
+            positions[start_counts:end_counts]
+            num_uniques.append(
+                count_unique_int64(ca_input[positions[start_counts:end_counts]])
+            )
+
+        return num_uniques
 
     input_chunk_len = ca_input.chunklen
     in_buffer = np.empty(input_chunk_len, dtype='int64')

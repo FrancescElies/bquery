@@ -129,6 +129,11 @@ open('bquery/version.py', 'w').write('__version__ = "%s"\n' % VERSION)
 # Global variables
 CFLAGS = os.environ.get('CFLAGS', '').split()
 LFLAGS = os.environ.get('LFLAGS', '').split()
+
+# OpenMP libraries
+CFLAGS.append('-fopenmp')
+LFLAGS.append('-fopenmp')
+
 # Allow setting the Blosc dir if installed in the system
 BLOSC_DIR = os.environ.get('BLOSC_DIR', '')
 

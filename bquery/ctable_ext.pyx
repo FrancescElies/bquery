@@ -3,6 +3,10 @@
 from __future__ import division
 import numpy as np
 import cython
+from cython.parallel cimport prange
+from openmp cimport omp_lock_t, omp_init_lock, omp_destroy_lock, \
+    omp_set_lock, omp_unset_lock, omp_get_num_procs
+
 from numpy cimport ndarray, dtype, npy_intp, npy_int32, npy_uint64, npy_int64, npy_float64
 from libc.stdlib cimport malloc
 from libc.string cimport strcpy
@@ -78,6 +82,8 @@ def factorize_str(carray carray_, carray labels=None):
         ndarray in_buffer
         ndarray[npy_uint64] out_buffer
         kh_str_t *table
+        omp_lock_t lock_iter
+        int num_procs
 
     count = 0
     ret = 0
@@ -91,20 +97,27 @@ def factorize_str(carray carray_, carray labels=None):
     out_buffer = np.empty(chunklen, dtype='uint64')
     table = kh_init_str()
     N = <Py_ssize_t> ceil(len_carray / chunklen)
+    omp_init_lock(&lock_iter)
     iter_ = bz.iterblocks(carray_)
-    for i in range(N):
-        in_buffer = iter_.next()
-        len_in_buffer = len(in_buffer)
-        _factorize_str_helper(len_in_buffer,
-                        carray_.dtype.itemsize + 1,
-                        in_buffer,
-                        out_buffer,
-                        table,
-                        &count,
-                        reverse,
-                        )
-        # compress out_buffer into labels
-        labels.append(out_buffer[:len_in_buffer].astype(np.int64))
+    num_procs = omp_get_num_procs()
+
+    for i in prange(N, nogil=True, num_threads=num_procs):
+        omp_set_lock(&lock_iter)
+        with gil:
+            in_buffer = iter_.next()
+            len_in_buffer = len(in_buffer)
+        omp_unset_lock(&lock_iter)
+        with gil:
+            _factorize_str_helper(len_in_buffer,
+                            carray_.dtype.itemsize + 1,
+                            in_buffer,
+                            out_buffer,
+                            table,
+                            &count,
+                            reverse,
+                            )
+            # compress out_buffer into labels
+            labels.append(out_buffer[:len_in_buffer].astype(np.int64))
 
     kh_destroy_str(table)
 

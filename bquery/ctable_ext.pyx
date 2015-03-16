@@ -1,8 +1,10 @@
+from __future__ import division
 import numpy as np
 import cython
 from numpy cimport ndarray, dtype, npy_intp, npy_int32, npy_uint64, npy_int64, npy_float64
 from libc.stdlib cimport malloc
 from libc.string cimport strcpy
+from libc.math cimport ceil
 from khash cimport *
 import bcolz as bz
 from bcolz.carray_ext cimport carray, chunk
@@ -69,7 +71,7 @@ cdef void _factorize_str_helper(Py_ssize_t iter_range,
 @cython.boundscheck(False)
 def factorize_str(carray carray_, carray labels=None):
     cdef:
-        Py_ssize_t len_carray, count, chunklen, len_in_buffer
+        Py_ssize_t i, N, len_carray, count, chunklen, len_in_buffer
         dict reverse
         ndarray in_buffer
         ndarray[npy_uint64] out_buffer
@@ -86,8 +88,10 @@ def factorize_str(carray carray_, carray labels=None):
     # in-buffer isn't typed, because cython doesn't support string arrays (?)
     out_buffer = np.empty(chunklen, dtype='uint64')
     table = kh_init_str()
-
-    for in_buffer in bz.iterblocks(carray_):
+    N = <Py_ssize_t> ceil(len_carray / chunklen)
+    iter_ = bz.iterblocks(carray_)
+    for i in range(N):
+        in_buffer = iter_.next()
         len_in_buffer = len(in_buffer)
         _factorize_str_helper(len_in_buffer,
                         carray_.dtype.itemsize + 1,

@@ -91,7 +91,20 @@ else:
 ########### End of checks ##########
 
 
-########### Project specific command line options ###########
+########### Project-specific build options ###########
+
+copt = {'cygwin': ['-fopenmp'],
+        'emx': ['-fopenmp'],
+        'intel': ['-openmp'],
+        'intele': ['-openmp'],
+        'intelem': ['-openmp'],
+        'mingw32': ['-fopenmp'],
+        'msvc': ['/openmp'],
+        }
+lopt = {'cygwin': ['-fopenmp'],
+        'emx': ['-fopenmp'],
+        'mingw32': ['-fopenmp'],
+        }
 
 class bquery_build_ext(build_ext):
     user_options = build_ext.user_options + \
@@ -105,6 +118,7 @@ class bquery_build_ext(build_ext):
         build_ext.initialize_options(self)
 
     def run(self):
+        # regenerate cython code from templates
         if self.from_templates:
             try:
                 import jinja2
@@ -116,8 +130,23 @@ class bquery_build_ext(build_ext):
 
         build_ext.run(self)
 
+    def build_extensions(self):
+        # set compiler-specific build flags, e.g. for openmp
+        c = self.compiler.compiler_type
+        if copt.has_key(c):
+           for e in self.extensions:
+               e.extra_compile_args += copt[ c ]
+        else:
+            print_warning(
+                "Openmp flags for compiler '%s' not configured in setup.py." +
+                "Building without parallel processing support.")
+        if lopt.has_key(c):
+            for e in self.extensions:
+                e.extra_link_args += lopt[ c ]
+        build_ext.build_extensions(self)
 
-######### End project specific command line options #########
+
+######### End project-specific build options #########
 
 
 # bquery version
@@ -131,10 +160,6 @@ CFLAGS = os.environ.get('CFLAGS', '').split()
 LFLAGS = os.environ.get('LFLAGS', '').split()
 # Allow setting the Blosc dir if installed in the system
 BLOSC_DIR = os.environ.get('BLOSC_DIR', '')
-
-# OpenMP libraries
-CFLAGS.append('-fopenmp')
-LFLAGS.append('-fopenmp')
 
 # Sources & libraries
 inc_dirs = ['bquery']

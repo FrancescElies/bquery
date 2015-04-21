@@ -483,3 +483,61 @@ class ctable(bcolz.ctable):
             boolarr = bcolz.carray(boolarr)
 
         return boolarr
+
+    def is_in_ordered_subgroups(self, basket_col=None, bool_arr=None):
+        """"""
+        assert basket_col is not None
+
+        if bool_arr is None:
+            bool_arr = bcolz.ones(self.len)
+
+        # (option 1)
+        # ret = ctable_ext.is_in_ordered_subgroups(self, basket_col=None, bool_arr=None)
+
+        # (option 2)
+        import itertools as itt
+
+        ret = bcolz.zeros(0, dtype='bool', expectedlen=self.len)
+        blen = min([self[basket_col].chunklen, bool_arr.chunklen])
+        blen = 4
+        previous_item = -1
+        is_in = False
+        len_subgroup = 1
+        start = False
+
+        for bl_basket, bl_bool_arr in itt.izip(
+                bcolz.iterblocks(self[basket_col], blen=blen),
+                bcolz.iterblocks(bool_arr, blen=blen)):
+            len_ = len(bl_basket)
+            for n in range(len_):
+                actual_item = bl_basket[n]
+
+                if previous_item != actual_item:
+                    if not start:
+                        start = True
+                        previous_item = actual_item
+                        continue
+
+                    if is_in:
+                        x = bcolz.ones(len_subgroup, dtype='bool')
+                    else:
+                        x = bcolz.zeros(len_subgroup, dtype='bool')
+                    ret.append(x)
+                    # - reset vars -
+                    is_in = False
+                    len_subgroup = 0
+
+                if bl_bool_arr[n]:
+                    is_in = True
+
+                len_subgroup += 1
+                previous_item = actual_item
+
+        if is_in:
+            x = bcolz.ones(len_subgroup, dtype='bool')
+        else:
+            x = bcolz.zeros(len_subgroup, dtype='bool')
+        ret.append(x)
+
+        return ret
+

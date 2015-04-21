@@ -1,6 +1,10 @@
 import numpy as np
 import cython
-from numpy cimport ndarray, dtype, npy_intp, npy_int32, npy_uint64, npy_int64, npy_float64
+import itertools as itt
+import bcolz as bz
+from numpy cimport ndarray, dtype, npy_intp, npy_int32, npy_uint64, npy_int64, \
+    npy_float64, npy_bool
+from cpython cimport bool
 from libc.stdlib cimport malloc
 from libc.string cimport strcpy
 from khash cimport *
@@ -1130,6 +1134,247 @@ cpdef groupby_value(carray ca_input, carray ca_factor, Py_ssize_t nr_groups, Py_
         np.delete(out_buffer, skip_key)
 
     return out_buffer
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef is_in_ordered_subgroups_v1(carray groups_col, carray bool_arr=None):
+    """
+    Getting the right logic
+
+    :param groups_col: carray containing ordered groups
+    :param bool_arr: bool array showing if an desired item is present
+    :return: bool array marking the whole group as True if item found
+    """
+    cdef:
+        npy_int64 previous_item
+        npy_int64 actual_item
+        Py_ssize_t blen
+        Py_ssize_t len_subgroup = 0
+        Py_ssize_t n
+        npy_bool is_in = False
+        carray ret
+        ndarray x
+        ndarray bl_basket, bl_bool_arr
+
+    ret = bz.zeros(0, dtype='bool', expectedlen=groups_col.len)
+    blen = min([groups_col.chunklen, bool_arr.chunklen])
+    previous_item = groups_col[0]
+
+    for bl_basket, bl_bool_arr in itt.izip(
+            bz.iterblocks(groups_col, blen=blen),
+            bz.iterblocks(bool_arr, blen=blen)):
+
+        for n in range(len(bl_basket)):
+
+            actual_item = bl_basket[n]
+
+            if previous_item != actual_item:
+                if is_in:
+                    x = np.ones(len_subgroup, dtype='bool')
+                else:
+                    x = np.zeros(len_subgroup, dtype='bool')
+                ret.append(x)
+                # - reset vars -
+                is_in = False
+                len_subgroup = 0
+
+            if bl_bool_arr[n]:
+                is_in = True
+
+            len_subgroup += 1
+            previous_item = actual_item
+
+    if is_in:
+        x = np.ones(len_subgroup, dtype='bool')
+    else:
+        x = np.zeros(len_subgroup, dtype='bool')
+
+    ret.append(x)
+
+    return ret
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef is_in_ordered_subgroups_v2(carray groups_col, carray bool_arr=None):
+    """
+    Speedup v1
+
+    :param groups_col: carray containing ordered groups
+    :param bool_arr: bool array showing if an desired item is present
+    :return: bool array marking the whole group as True if item found
+    """
+    cdef:
+        chunk bool_arr_chunk
+        Py_ssize_t bool_arr_chunk_nr, bool_arr_chunk_len, bool_arr_chunk_row
+
+        chunk groups_col_chunk
+        Py_ssize_t groups_col_chunk_nr, groups_col_chunk_len
+
+        Py_ssize_t i, j, bool_arr_total_chunks, leftover_elements
+
+        Py_ssize_t len_subgroup = 0
+        Py_ssize_t n
+        npy_int64 previous_value, current_value
+        npy_bool current_bool
+        npy_bool is_in = False
+        ndarray x
+        ndarray[npy_int64] groups_col_buffer
+        ndarray bool_arr_buffer
+        carray ret
+
+    ret = bz.zeros(0, dtype='bool', expectedlen=groups_col.len)
+    groups_col_chunk_len = groups_col.chunklen
+    groups_col_buffer = np.empty(groups_col_chunk_len, dtype=groups_col.dtype)
+
+    bool_arr_total_chunks = bool_arr.nchunks
+    bool_arr_chunk_nr = 0
+
+    bool_arr_chunk_len = bool_arr.chunklen
+    bool_arr_buffer = np.empty(bool_arr_chunk_len, dtype=bool)
+    if bool_arr_total_chunks > 0:
+        bool_arr_chunk = bool_arr.chunks[bool_arr_chunk_nr]
+        bool_arr_chunk._getitem(0, bool_arr_chunk_len, bool_arr_buffer.data)
+    else:
+        bool_arr_buffer = bool_arr.leftover_array
+    bool_arr_chunk_row = 0
+
+    for groups_col_chunk_nr in range(groups_col.nchunks):
+        # fill input buffer
+        groups_col_chunk = groups_col.chunks[groups_col_chunk_nr]
+        groups_col_chunk._getitem(0, groups_col_chunk_len, groups_col_buffer.data)
+
+        # loop through rows
+        for i in range(groups_col_chunk_len):
+            # go to next factor buffer if necessary
+            if bool_arr_chunk_row == bool_arr_chunk_len:
+                bool_arr_chunk_nr += 1
+                if bool_arr_chunk_nr < bool_arr_total_chunks:
+                    bool_arr_chunk = bool_arr.chunks[bool_arr_chunk_nr]
+                    bool_arr_chunk._getitem(0, bool_arr_chunk_len, bool_arr_buffer.data)
+                else:
+                    bool_arr_buffer = bool_arr.leftover_array
+                bool_arr_chunk_row = 0
+
+            current_bool = bool_arr_buffer[bool_arr_chunk_row]
+            bool_arr_chunk_row += 1
+            # ---
+            current_value = groups_col_buffer[i]
+
+            if previous_value != current_value:
+                if is_in:
+                    x = np.ones(len_subgroup, dtype='bool')
+                else:
+                    x = np.zeros(len_subgroup, dtype='bool')
+                ret.append(x)
+                # - reset vars -
+                is_in = False
+                len_subgroup = 0
+
+            if current_bool:
+                is_in = True
+
+            len_subgroup += 1
+            previous_value = current_value
+            # ---
+
+            bool_arr_chunk_row += 1
+
+    leftover_elements = cython.cdiv(groups_col.leftover, groups_col.atomsize)
+    if leftover_elements > 0:
+        # fill input buffer
+        groups_col_buffer = groups_col.leftover_array
+
+        # loop through rows
+        for i in range(leftover_elements):
+            # go to next factor buffer if necessary
+            if bool_arr_chunk_row == bool_arr_chunk_len:
+                bool_arr_chunk_nr += 1
+                if bool_arr_chunk_nr < bool_arr_total_chunks:
+                    bool_arr_chunk = bool_arr.chunks[bool_arr_chunk_nr]
+                    bool_arr_chunk._getitem(0, bool_arr_chunk_len, bool_arr_buffer.data)
+                else:
+                    bool_arr_buffer = bool_arr.leftover_array
+                bool_arr_chunk_row = 0
+
+            current_bool = bool_arr_buffer[bool_arr_chunk_row]
+            bool_arr_chunk_row += 1
+            # ---
+            current_value = groups_col_buffer[i]
+
+            if previous_value != current_value:
+                if is_in:
+                    x = np.ones(len_subgroup, dtype='bool')
+                else:
+                    x = np.zeros(len_subgroup, dtype='bool')
+                ret.append(x)
+                # - reset vars -
+                is_in = False
+                len_subgroup = 0
+
+            if current_bool:
+                is_in = True
+
+            len_subgroup += 1
+            previous_value = current_value
+            # ---
+
+    if is_in:
+        x = np.ones(len_subgroup, dtype='bool')
+    else:
+        x = np.zeros(len_subgroup, dtype='bool')
+
+    ret.append(x)
+
+    return ret
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef process_groupby_for_baskets(carray groups_col, r_gb, char* tmp_col_name):
+    """
+    Using groupby
+
+    :param groups_col: carray containing ordered groups
+    :param bool_arr: bool array showing if an desired item is present
+    :return: bool array marking the whole group as True if item found
+    """
+    cdef:
+        carray ret
+        ndarray x
+        Py_ssize_t n=0, i=0, k=0
+        npy_int64 previous_item, actual_item
+        ndarray[npy_int64] block
+
+    ret = bz.zeros(0, dtype='bool', expectedlen=groups_col.len)
+    previous_item = groups_col[0]
+
+    for block in bz.iterblocks(groups_col):
+        for i in range(len(block)):
+            # TODO: block[i] triggers decompression each time
+            actual_item  = block[i]
+            if actual_item != previous_item:
+                if r_gb[tmp_col_name][k] > 0:
+                    x = np.ones(n, dtype='bool')
+                else:
+                    x = np.zeros(n, dtype='bool')
+                ret.append(x)
+                n = 0
+                k += 1
+
+            n += 1
+            previous_item = actual_item
+
+    if r_gb[tmp_col_name][k] > 0:
+        x = np.ones(n, dtype='bool')
+    else:
+        x = np.zeros(n, dtype='bool')
+    ret.append(x)
+
+    return ret
+
 
 # ---------------------------------------------------------------------------
 # Temporary Section

@@ -492,52 +492,23 @@ class ctable(bcolz.ctable):
             bool_arr = bcolz.ones(self.len)
 
         # (option 1)
-        # ret = ctable_ext.is_in_ordered_subgroups(self, basket_col=None, bool_arr=None)
+        return \
+            ctable_ext.is_in_ordered_subgroups_v1(
+                self[basket_col], bool_arr=bool_arr)
 
         # (option 2)
-        import itertools as itt
+        # return \
+        #     ctable_ext.is_in_ordered_subgroups_v2(
+        #         self[basket_col], bool_arr=bool_arr)
 
-        ret = bcolz.zeros(0, dtype='bool', expectedlen=self.len)
-        blen = min([self[basket_col].chunklen, bool_arr.chunklen])
-        blen = 4
-        previous_item = -1
-        is_in = False
-        len_subgroup = 1
-        start = False
+        # (option 3) Using groupby functionality
+        # tmp_col_name = 'tmp_1234'
+        # self.addcol(bool_arr, name=tmp_col_name, dtype='int32')
+        # r_gb = self.groupby([basket_col], [tmp_col_name])
+        # self.delcol(tmp_col_name)
+        # self.flush()
+        #
+        # return ctable_ext.process_groupby_for_baskets(
+        #     self[basket_col], r_gb, tmp_col_name)
 
-        for bl_basket, bl_bool_arr in itt.izip(
-                bcolz.iterblocks(self[basket_col], blen=blen),
-                bcolz.iterblocks(bool_arr, blen=blen)):
-            len_ = len(bl_basket)
-            for n in range(len_):
-                actual_item = bl_basket[n]
-
-                if previous_item != actual_item:
-                    if not start:
-                        start = True
-                        previous_item = actual_item
-                        continue
-
-                    if is_in:
-                        x = bcolz.ones(len_subgroup, dtype='bool')
-                    else:
-                        x = bcolz.zeros(len_subgroup, dtype='bool')
-                    ret.append(x)
-                    # - reset vars -
-                    is_in = False
-                    len_subgroup = 0
-
-                if bl_bool_arr[n]:
-                    is_in = True
-
-                len_subgroup += 1
-                previous_item = actual_item
-
-        if is_in:
-            x = bcolz.ones(len_subgroup, dtype='bool')
-        else:
-            x = bcolz.zeros(len_subgroup, dtype='bool')
-        ret.append(x)
-
-        return ret
 
